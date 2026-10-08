@@ -1,0 +1,58 @@
+name: Publish dashboard
+
+on:
+  schedule:
+    - cron: "20 * * * *"   # 20 past every hour (UTC), after the VPS pushes at about :07
+  workflow_dispatch:         # adds a "Run workflow" button on the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Get this repo (clean.py)
+        uses: actions/checkout@v4
+
+      - name: Get only dashboard.html from the private repo
+        uses: actions/checkout@v4
+        with:
+          repository: addison2kpuzzle-source/atm10-stats
+          ssh-key: ${{ secrets.STATS_DEPLOY_KEY }}
+          path: private
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: dashboard.html
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clean it (stops here if anything secret is found)
+        env:
+          ALIAS_SALT: ${{ secrets.ALIAS_SALT }}
+        run: |
+          mkdir -p site
+          python clean.py private/dashboard.html site/index.html
+          touch site/.nojekyll
+          rm -rf private
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
